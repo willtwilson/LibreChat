@@ -312,7 +312,6 @@ const OpenAIChatCompletionController = async (req, res) => {
           },
         });
         summarizeHandler = createSummarizeHandler({
-          customPrompt: globalConfig.prompt,
           summarize,
           persistSummary: createDeferredPersistSummary(),
           onStatusChange: async (status) => {
