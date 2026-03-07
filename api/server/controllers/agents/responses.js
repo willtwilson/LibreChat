@@ -479,7 +479,7 @@ const createResponse = async (req, res) => {
             });
           },
         },
-        ...(summarizationConfig?.enabled !== false
+        ...(summarizationConfig?.enabled === true
           ? {
               on_summarize_start: {
                 handle: async (_event, data) => {
@@ -679,7 +679,7 @@ const createResponse = async (req, res) => {
             });
           },
         },
-        ...(summarizationConfig?.enabled !== false
+        ...(summarizationConfig?.enabled === true
           ? {
               on_summarize_start: { handle: () => {} },
               on_summarize_delta: { handle: () => {} },
