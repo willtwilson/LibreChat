@@ -1,9 +1,10 @@
-import { memo, useMemo, useState, useCallback, useRef } from 'react';
+import { memo, useMemo, useState, useCallback, useRef, useId } from 'react';
 import { useAtomValue } from 'jotai';
 import { Clipboard, CheckMark, TooltipAnchor } from '@librechat/client';
 import { ScrollText, ChevronDown, ChevronUp } from 'lucide-react';
 import type { MouseEvent, FocusEvent } from 'react';
 import { fontSizeAtom } from '~/store/fontSize';
+import { useMessageContext } from '~/Providers';
 import { useLocalize } from '~/hooks';
 import { cn } from '~/utils';
 
@@ -32,6 +33,7 @@ const SummaryButton = memo(
     label,
     meta,
     content,
+    contentId,
     showCopyButton = true,
   }: {
     isExpanded: boolean;
@@ -39,6 +41,7 @@ const SummaryButton = memo(
     label: string;
     meta?: string;
     content?: string;
+    contentId: string;
     showCopyButton?: boolean;
   }) => {
     const localize = useLocalize();
@@ -63,6 +66,7 @@ const SummaryButton = memo(
           type="button"
           onClick={onClick}
           aria-expanded={isExpanded}
+          aria-controls={contentId}
           className={cn(
             'group/button flex flex-1 items-center justify-start rounded-lg leading-[18px]',
             fontSize,
@@ -121,11 +125,13 @@ const FloatingSummaryBar = memo(
     isExpanded,
     onClick,
     content,
+    contentId,
   }: {
     isVisible: boolean;
     isExpanded: boolean;
     onClick: (e: MouseEvent<HTMLButtonElement>) => void;
     content?: string;
+    contentId: string;
   }) => {
     const localize = useLocalize();
     const [isCopied, setIsCopied] = useState(false);
@@ -165,6 +171,7 @@ const FloatingSummaryBar = memo(
               tabIndex={isVisible ? 0 : -1}
               onClick={onClick}
               aria-label={collapseTooltip}
+              aria-controls={contentId}
               className={cn(
                 'flex items-center justify-center rounded-lg bg-surface-secondary p-1.5 text-text-secondary-alt shadow-sm',
                 'hover:bg-surface-hover hover:text-text-primary',
@@ -209,10 +216,12 @@ const FloatingSummaryBar = memo(
 );
 
 const Summary = memo(({ text, model, provider, tokenCount, summarizing }: SummaryProps) => {
+  const contentId = useId();
   const localize = useLocalize();
   const [isExpanded, setIsExpanded] = useState(false);
   const [isBarVisible, setIsBarVisible] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const { isSubmitting, isLatestMessage } = useMessageContext();
 
   const handleClick = useCallback((e: MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
@@ -232,6 +241,9 @@ const Summary = memo(({ text, model, provider, tokenCount, summarizing }: Summar
     }
   }, []);
 
+  const effectiveIsSubmitting = isLatestMessage ? isSubmitting : false;
+  const isActivelyStreaming = !!summarizing && !!effectiveIsSubmitting;
+
   const meta = useMemo(() => {
     const parts: string[] = [];
     if (provider || model) {
@@ -240,45 +252,19 @@ const Summary = memo(({ text, model, provider, tokenCount, summarizing }: Summar
     if (tokenCount != null && tokenCount > 0) {
       parts.push(`${tokenCount} tokens`);
     }
-    return parts.length > 0 ? `(${parts.join(' · ')})` : undefined;
+    return parts.length > 0 ? `(${parts.join(' \u00b7 ')})` : undefined;
   }, [model, provider, tokenCount]);
 
   const label = useMemo(
     () =>
-      summarizing ? localize('com_ui_summarizing') : localize('com_ui_conversation_summarized'),
-    [summarizing, localize],
+      isActivelyStreaming
+        ? localize('com_ui_summarizing')
+        : localize('com_ui_conversation_summarized'),
+    [isActivelyStreaming, localize],
   );
 
   if (!summarizing && !text) {
     return null;
-  }
-
-  if (summarizing) {
-    return (
-      <div className="group/reasoning">
-        <div className="group/summary-container">
-          <div className="mb-2 pb-2 pt-2">
-            <SummaryButton
-              isExpanded={!!text}
-              onClick={handleClick}
-              label={label}
-              meta={meta}
-              showCopyButton={false}
-            />
-          </div>
-          {text && (
-            <div
-              className="mb-4 grid transition-all duration-300 ease-out"
-              style={{ gridTemplateRows: '1fr' }}
-            >
-              <div className="relative overflow-hidden">
-                <SummaryContent>{text}</SummaryContent>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    );
   }
 
   return (
@@ -298,9 +284,15 @@ const Summary = memo(({ text, model, provider, tokenCount, summarizing }: Summar
             label={label}
             meta={meta}
             content={text}
+            contentId={contentId}
+            showCopyButton={!isActivelyStreaming}
           />
         </div>
         <div
+          id={contentId}
+          role="group"
+          aria-label={label}
+          aria-hidden={!isExpanded || undefined}
           className={cn('grid transition-all duration-300 ease-out', isExpanded && 'mb-4')}
           style={{
             gridTemplateRows: isExpanded ? '1fr' : '0fr',
@@ -313,6 +305,7 @@ const Summary = memo(({ text, model, provider, tokenCount, summarizing }: Summar
               isExpanded={isExpanded}
               onClick={handleClick}
               content={text}
+              contentId={contentId}
             />
           </div>
         </div>
