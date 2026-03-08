@@ -355,7 +355,8 @@ describe('BaseClient', () => {
           id: '3',
           parentMessageId: '2',
           role: 'system',
-          text: 'Summary for Message 3',
+          text: 'Message 3',
+          content: [{ type: 'text', text: 'Summary for Message 3' }],
           summary: 'Summary for Message 3',
         },
         { id: '4', parentMessageId: '3', text: 'Message 4' },
@@ -380,7 +381,8 @@ describe('BaseClient', () => {
           id: '4',
           parentMessageId: '3',
           role: 'system',
-          text: 'Summary for Message 4',
+          text: 'Message 4',
+          content: [{ type: 'text', text: 'Summary for Message 4' }],
           summary: 'Summary for Message 4',
         },
         { id: '5', parentMessageId: '4', text: 'Message 5' },
@@ -405,7 +407,8 @@ describe('BaseClient', () => {
           id: '4',
           parentMessageId: '3',
           role: 'system',
-          text: 'Summary for Message 4',
+          text: 'Message 4',
+          content: [{ type: 'text', text: 'Summary for Message 4' }],
           summary: 'Summary for Message 4',
         },
         { id: '5', parentMessageId: '4', text: 'Message 5' },
@@ -433,7 +436,7 @@ describe('BaseClient', () => {
       });
       expect(result).toHaveLength(2);
       expect(result[0].role).toBe('system');
-      expect(result[0].text).toBe('Content block summary');
+      expect(result[0].content).toEqual([{ type: 'text', text: 'Content block summary' }]);
       expect(result[0].tokenCount).toBe(42);
     });
 
@@ -455,7 +458,7 @@ describe('BaseClient', () => {
         summary: true,
       });
       expect(result).toHaveLength(2);
-      expect(result[0].text).toBe('Content block summary');
+      expect(result[0].content).toEqual([{ type: 'text', text: 'Content block summary' }]);
       expect(result[0].tokenCount).toBe(20);
     });
 
@@ -476,7 +479,7 @@ describe('BaseClient', () => {
         summary: true,
       });
       expect(result).toHaveLength(2);
-      expect(result[0].text).toBe('Legacy summary only');
+      expect(result[0].content).toEqual([{ type: 'text', text: 'Legacy summary only' }]);
       expect(result[0].tokenCount).toBe(15);
     });
   });
@@ -563,7 +566,7 @@ describe('BaseClient', () => {
       expect(updateArg.content[2]).toEqual(
         expect.objectContaining({
           type: 'summary',
-          text: 'new-summary',
+          content: [{ type: 'text', text: 'new-summary' }],
           tokenCount: 77,
         }),
       );

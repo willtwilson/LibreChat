@@ -177,7 +177,7 @@ export default function useStepHandler({
       const incoming = contentPart as SummaryContentPart;
       updatedContent[index] = {
         ...incoming,
-        text: (currentSummary?.text ?? '') + incoming.text,
+        content: [...(currentSummary?.content ?? []), ...(incoming.content ?? [])],
       };
     } else if (contentType === ContentTypes.TOOL_CALL && 'tool_call' in contentPart) {
       const existingContent = updatedContent[index] as Agents.ToolCallContent | undefined;

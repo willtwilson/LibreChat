@@ -8,8 +8,10 @@ import { useMessageContext } from '~/Providers';
 import { useLocalize } from '~/hooks';
 import { cn } from '~/utils';
 
+type ContentBlock = { type?: string; text?: string };
+
 type SummaryProps = {
-  text: string;
+  content?: ContentBlock[];
   model?: string;
   provider?: string;
   tokenCount?: number;
@@ -215,13 +217,15 @@ const FloatingSummaryBar = memo(
   },
 );
 
-const Summary = memo(({ text, model, provider, tokenCount, summarizing }: SummaryProps) => {
+const Summary = memo(({ content, model, provider, tokenCount, summarizing }: SummaryProps) => {
   const contentId = useId();
   const localize = useLocalize();
   const [isExpanded, setIsExpanded] = useState(false);
   const [isBarVisible, setIsBarVisible] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const { isSubmitting, isLatestMessage } = useMessageContext();
+
+  const text = useMemo(() => (content ?? []).map((block) => block.text ?? '').join(''), [content]);
 
   const handleClick = useCallback((e: MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();

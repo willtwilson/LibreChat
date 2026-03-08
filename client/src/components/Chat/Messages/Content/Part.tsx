@@ -111,7 +111,7 @@ const Part = memo(function Part({
   } else if (part.type === ContentTypes.SUMMARY) {
     return (
       <Summary
-        text={part.text ?? ''}
+        content={part.content}
         model={part.model}
         provider={part.provider}
         tokenCount={part.tokenCount}

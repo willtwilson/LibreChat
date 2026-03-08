@@ -359,7 +359,7 @@ class BaseClient {
 
         const summaryContentBlock = {
           type: ContentTypes.SUMMARY,
-          text: tokenCountMap.summaryMessage.content,
+          content: [{ type: ContentTypes.TEXT, text: tokenCountMap.summaryMessage.content }],
           tokenCount: tokenCountMap.summaryMessage.tokenCount,
           createdAt: new Date().toISOString(),
         };
@@ -970,7 +970,7 @@ class BaseClient {
       if (summaryBlock) {
         this.previous_summary = {
           ...msg,
-          summary: summaryBlock.text,
+          summary: BaseClient.getSummaryText(summaryBlock),
           summaryTokenCount: summaryBlock.tokenCount,
         };
         break;
@@ -1082,13 +1082,23 @@ class BaseClient {
   }
 
   /** Finds the last summary content block in a message's content array (last-summary-wins) */
+  static getSummaryText(summaryBlock) {
+    if (Array.isArray(summaryBlock.content)) {
+      return summaryBlock.content.map((b) => b.text ?? '').join('');
+    }
+    if (typeof summaryBlock.content === 'string') {
+      return summaryBlock.content;
+    }
+    return summaryBlock.text ?? '';
+  }
+
   static findSummaryContentBlock(message) {
     if (!Array.isArray(message?.content)) {
       return null;
     }
     let lastSummary = null;
     for (const part of message.content) {
-      if (part?.type === ContentTypes.SUMMARY && part.text) {
+      if (part?.type === ContentTypes.SUMMARY && (part.content || part.text)) {
         lastSummary = part;
       }
     }
@@ -1153,13 +1163,14 @@ class BaseClient {
       if (summary) {
         const summaryBlock = BaseClient.findSummaryContentBlock(message);
         if (summaryBlock) {
+          const summaryText = BaseClient.getSummaryText(summaryBlock);
           message.role = 'system';
-          message.text = summaryBlock.text;
+          message.content = [{ type: ContentTypes.TEXT, text: summaryText }];
           message.tokenCount = summaryBlock.tokenCount;
           hasSummary = true;
         } else if (message.summary) {
           message.role = 'system';
-          message.text = message.summary;
+          message.content = [{ type: ContentTypes.TEXT, text: message.summary }];
           if (message.summaryTokenCount) {
             message.tokenCount = message.summaryTokenCount;
           }
