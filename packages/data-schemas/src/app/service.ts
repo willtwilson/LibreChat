@@ -1,4 +1,3 @@
-import { logger } from '@librechat/data-schemas';
 import {
   EModelEndpoint,
   getConfigDefaults,
@@ -14,6 +13,7 @@ import { processModelSpecs } from './specs';
 import { loadMemoryConfig } from './memory';
 import { loadEndpoints } from './endpoints';
 import { loadOCRConfig } from './ocr';
+import logger from '~/config/winston';
 
 function loadSummarizationConfig(config: DeepPartial<TCustomConfig>): AppConfig['summarization'] {
   const raw = config.summarization;
