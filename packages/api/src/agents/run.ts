@@ -256,6 +256,7 @@ export async function createRun({
         enabled: true,
         provider: selfProvider,
         model: selfModel,
+        parameters: agent.model_parameters as Record<string, unknown> | undefined,
       };
 
     const perAgentOverride = resolvedSummarizationConfig?.agents?.[agent.id];
