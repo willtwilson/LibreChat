@@ -1,6 +1,8 @@
 const { logger, webSearchKeys } = require('@librechat/data-schemas');
 const { Tools, CacheKeys, Constants, FileSources } = require('librechat-data-provider');
 const {
+  getNewS3URL,
+  needsRefresh,
   MCPOAuthHandler,
   MCPTokenStorage,
   normalizeHttpError,
@@ -37,7 +39,6 @@ const { updateUserPluginAuth, deleteUserPluginAuth } = require('~/server/service
 const { verifyEmail, resendVerificationEmail } = require('~/server/services/AuthService');
 const { getMCPManager, getFlowStateManager, getMCPServersRegistry } = require('~/config');
 const { invalidateCachedTools } = require('~/server/services/Config/getCachedTools');
-const { needsRefresh, getNewS3URL } = require('@librechat/api');
 const { processDeleteRequest } = require('~/server/services/Files/process');
 const { getAppConfig } = require('~/server/services/Config');
 const { deleteToolCalls } = require('~/models/ToolCall');
