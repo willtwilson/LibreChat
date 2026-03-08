@@ -17,55 +17,6 @@ import type { Agent, SummarizationConfig } from 'librechat-data-provider';
 import type * as t from '~/types';
 import { resolveHeaders, createSafeUser } from '~/utils/env';
 
-type RuntimeSummarizationConfig = {
-  enabled?: boolean;
-  provider?: string;
-  model?: string;
-  parameters?: Record<string, unknown>;
-  prompt?: string;
-  /** Prompt used when updating an existing summary with new messages. Falls back to `prompt` if not set. */
-  updatePrompt?: string;
-  stream?: boolean;
-  reserveTokensRatio?: number;
-  maxSummaryTokens?: number;
-  /** Absolute minimum tokens reserved for summarization output. */
-  minReserveTokens?: number;
-  /** Position-based context pruning configuration. */
-  contextPruning?: {
-    enabled?: boolean;
-    keepLastAssistants?: number;
-    softTrimRatio?: number;
-    hardClearRatio?: number;
-    minPrunableToolChars?: number;
-  };
-  /** Overflow recovery configuration. */
-  overflowRecovery?: {
-    enabled?: boolean;
-    maxAttempts?: number;
-  };
-  agents?: Record<
-    string,
-    {
-      enabled?: boolean;
-      provider?: string;
-      model?: string;
-      parameters?: Record<string, unknown>;
-      prompt?: string;
-      updatePrompt?: string;
-      stream?: boolean;
-      maxSummaryTokens?: number;
-      trigger?: {
-        type: string;
-        value: number;
-      };
-    }
-  >;
-  trigger?: {
-    type: string;
-    value: number;
-  };
-};
-
 /** Expected shape of JSON tool search results */
 interface ToolSearchJsonResult {
   found?: number;
@@ -291,16 +242,24 @@ export async function createRun({
 
   const agentInputs: AgentInputs[] = [];
   const buildAgentContext = (agent: RunAgent) => {
-    const resolvedSummarizationConfig = (agent.summarization ?? summarizationConfig) as
-      | RuntimeSummarizationConfig
-      | undefined;
-    const perAgentSummarizationOverride = resolvedSummarizationConfig?.agents?.[agent.id] as
-      | RuntimeSummarizationConfig
-      | undefined;
+    const selfProvider =
+      (providerEndpointMap[
+        agent.provider as keyof typeof providerEndpointMap
+      ] as unknown as string) ?? agent.provider;
+    const selfModel = agent.model_parameters?.model ?? (agent.model as string | undefined);
+
+    const resolvedSummarizationConfig: SummarizationConfig | undefined = agent.summarization ??
+      summarizationConfig ?? {
+        enabled: true,
+        provider: selfProvider,
+        model: selfModel,
+      };
+
+    const perAgentOverride = resolvedSummarizationConfig?.agents?.[agent.id];
     const resolvedSummarizationProvider =
-      perAgentSummarizationOverride?.provider ?? resolvedSummarizationConfig?.provider;
+      perAgentOverride?.provider ?? resolvedSummarizationConfig?.provider;
     const resolvedSummarizationModel =
-      perAgentSummarizationOverride?.model ?? resolvedSummarizationConfig?.model;
+      perAgentOverride?.model ?? resolvedSummarizationConfig?.model;
     const hasSummarizationProvider =
       typeof resolvedSummarizationProvider === 'string' &&
       resolvedSummarizationProvider.trim().length > 0;
@@ -421,8 +380,7 @@ export async function createRun({
             stream: resolvedSummarizationConfig.stream,
             reserveRatio: resolvedSummarizationConfig.reserveTokensRatio,
             maxSummaryTokens:
-              perAgentSummarizationOverride?.maxSummaryTokens ??
-              resolvedSummarizationConfig.maxSummaryTokens,
+              perAgentOverride?.maxSummaryTokens ?? resolvedSummarizationConfig.maxSummaryTokens,
           }
         : undefined,
       initialSummary,

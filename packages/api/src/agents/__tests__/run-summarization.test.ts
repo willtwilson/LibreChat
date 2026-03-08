@@ -222,11 +222,14 @@ describe('summarizationEnabled resolution', () => {
     expect(agents[0].summarizationEnabled).toBe(false);
   });
 
-  it('false when summarizationConfig is undefined', async () => {
+  it('true with self-summarize default when summarizationConfig is undefined', async () => {
     const agents = await callAndCapture({
       summarizationConfig: undefined,
     });
-    expect(agents[0].summarizationEnabled).toBe(false);
+    expect(agents[0].summarizationEnabled).toBe(true);
+    const config = agents[0].summarizationConfig as Record<string, unknown>;
+    expect(config.provider).toBe('openAI');
+    expect(config.model).toBe('gpt-4o');
   });
 });
 
@@ -263,11 +266,15 @@ describe('summarizationConfig field passthrough', () => {
     expect(config.maxSummaryTokens).toBe(4096);
   });
 
-  it('undefined when no config provided', async () => {
+  it('uses self-summarize default when no config provided', async () => {
     const agents = await callAndCapture({
       summarizationConfig: undefined,
     });
-    expect(agents[0].summarizationConfig).toBeUndefined();
+    const config = agents[0].summarizationConfig as Record<string, unknown>;
+    expect(config).toBeDefined();
+    expect(config.enabled).toBe(true);
+    expect(config.provider).toBe('openAI');
+    expect(config.model).toBe('gpt-4o');
   });
 });
 
