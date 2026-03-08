@@ -85,12 +85,12 @@ beforeEach(() => {
 // Suite 1: reserveTokensRatio
 // ---------------------------------------------------------------------------
 describe('reserveTokensRatio', () => {
-  it('applies ratio from config using baseContextTokens', async () => {
+  it('applies ratio from config using baseContextTokens, capped at maxContextTokens', async () => {
     const agents = await callAndCapture({
-      agents: [makeAgent({ baseContextTokens: 200_000, maxContextTokens: 100_000 })],
+      agents: [makeAgent({ baseContextTokens: 200_000, maxContextTokens: 200_000 })],
       summarizationConfig: { reserveTokensRatio: 0.03, provider: 'anthropic', model: 'claude' },
     });
-    // Math.max(1024, Math.round(200000 * 0.97)) = 194000
+    // Math.round(200000 * 0.97) = 194000, min(200000, 194000) = 194000
     expect(agents[0].maxContextTokens).toBe(194_000);
   });
 
@@ -126,12 +126,12 @@ describe('reserveTokensRatio', () => {
     expect(agents[0].maxContextTokens).toBe(100_000);
   });
 
-  it('clamps to 1024 minimum', async () => {
+  it('clamps to 1024 minimum but still capped at maxContextTokens', async () => {
     const agents = await callAndCapture({
-      agents: [makeAgent({ baseContextTokens: 500, maxContextTokens: 500 })],
+      agents: [makeAgent({ baseContextTokens: 500, maxContextTokens: 2000 })],
       summarizationConfig: { reserveTokensRatio: 0.99, provider: 'anthropic', model: 'claude' },
     });
-    // Math.round(500 * 0.01) = 5 → clamped to 1024
+    // Math.round(500 * 0.01) = 5 → clamped to 1024, min(2000, 1024) = 1024
     expect(agents[0].maxContextTokens).toBe(1024);
   });
 });
@@ -294,10 +294,10 @@ describe('multi-agent + per-agent overrides', () => {
         model: 'claude',
       },
     });
-    // agent_1: Math.round(200000 * 0.9) = 180000
-    expect(agents[0].maxContextTokens).toBe(180_000);
-    // agent_2: Math.round(100000 * 0.9) = 90000
-    expect(agents[1].maxContextTokens).toBe(90_000);
+    // agent_1: Math.round(200000 * 0.9) = 180000, but capped at user's maxContextTokens (100000)
+    expect(agents[0].maxContextTokens).toBe(100_000);
+    // agent_2: Math.round(100000 * 0.9) = 90000, but capped at user's maxContextTokens (50000)
+    expect(agents[1].maxContextTokens).toBe(50_000);
   });
 
   it('per-agent summarization override applies to correct agent only', async () => {

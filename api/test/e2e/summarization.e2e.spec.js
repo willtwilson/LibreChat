@@ -329,7 +329,7 @@ const hasAnthropic =
         content: [
           {
             type: 'summary',
-            text: getSummaryText(summaryBlock),
+            content: [{ type: 'text', text: getSummaryText(summaryBlock) }],
             tokenCount: summaryBlock.tokenCount,
           },
         ],
@@ -520,7 +520,7 @@ const hasOpenAI = process.env.OPENAI_API_KEY != null && process.env.OPENAI_API_K
         content: [
           {
             type: 'summary',
-            text: getSummaryText(summaryBlock),
+            content: [{ type: 'text', text: getSummaryText(summaryBlock) }],
             tokenCount: summaryBlock.tokenCount,
           },
         ],
