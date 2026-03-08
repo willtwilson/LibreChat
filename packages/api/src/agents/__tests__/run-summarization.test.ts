@@ -1,5 +1,5 @@
 import type { SummarizationConfig } from 'librechat-data-provider';
-import { createRun } from '../run';
+import { createRun } from '~/agents/run';
 
 // Mock winston logger
 jest.mock('winston', () => ({
@@ -92,6 +92,15 @@ describe('reserveTokensRatio', () => {
     });
     // Math.round(200000 * 0.97) = 194000, min(200000, 194000) = 194000
     expect(agents[0].maxContextTokens).toBe(194_000);
+  });
+
+  it('never exceeds user-configured maxContextTokens even when ratio computes higher', async () => {
+    const agents = await callAndCapture({
+      agents: [makeAgent({ baseContextTokens: 200_000, maxContextTokens: 50_000 })],
+      summarizationConfig: { reserveTokensRatio: 0.03, provider: 'anthropic', model: 'claude' },
+    });
+    // Math.round(200000 * 0.97) = 194000, but min(50000, 194000) = 50000
+    expect(agents[0].maxContextTokens).toBe(50_000);
   });
 
   it('falls back to maxContextTokens when ratio is not set', async () => {

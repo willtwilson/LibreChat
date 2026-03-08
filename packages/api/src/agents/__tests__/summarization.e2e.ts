@@ -25,7 +25,6 @@ import {
   ChatModelStreamHandler,
   createContentAggregator,
 } from '@librechat/agents';
-import type { UsageMetadata } from '@langchain/core/messages';
 import type {
   SummarizeCompleteEvent,
   MessageContentComplex,
@@ -79,7 +78,7 @@ function createSpies(): Spies {
 }
 
 function buildHandlers(
-  collectedUsage: UsageMetadata[],
+  collectedUsage: ConstructorParameters<typeof ModelEndHandler>[0],
   aggregateContent: (params: { event: string; data: unknown }) => void,
   spies: Spies,
 ): Record<string, EventHandler> {
@@ -169,7 +168,7 @@ async function runFullTurn({
   tokenCounter,
   model,
 }: RunFullTurnParams) {
-  const collectedUsage: UsageMetadata[] = [];
+  const collectedUsage: ConstructorParameters<typeof ModelEndHandler>[0] = [];
   const { contentParts, aggregateContent } = createContentAggregator();
 
   const formatted = formatAgentMessages(payload as never, {});
