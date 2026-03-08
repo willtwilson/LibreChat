@@ -423,7 +423,7 @@ const hasAnthropic =
     if (error) {
       const isCleanTermination =
         error.message.includes('Recursion limit') || error.message.includes('empty_messages');
-      // eslint-disable-next-line jest/no-conditional-expect -- error may or may not occur depending on model behavior
+
       expect(isCleanTermination).toBe(true);
     }
 
