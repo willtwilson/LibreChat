@@ -1,12 +1,7 @@
 const { nanoid } = require('nanoid');
 const { v4: uuidv4 } = require('uuid');
 const { logger } = require('@librechat/data-schemas');
-const {
-  Callback,
-  GraphNodeKeys,
-  ToolEndHandler,
-  formatAgentMessages,
-} = require('@librechat/agents');
+const { Callback, ToolEndHandler, formatAgentMessages } = require('@librechat/agents');
 const { EModelEndpoint, ResourceType, PermissionBits } = require('librechat-data-provider');
 const {
   createRun,
@@ -38,6 +33,7 @@ const {
 const {
   createResponsesToolEndCallback,
   createToolEndCallback,
+  markSummarizationUsage,
 } = require('~/server/controllers/agents/callbacks');
 const { loadAgentTools, loadToolsForExecution } = require('~/server/services/ToolService');
 const { findAccessibleResources } = require('~/server/services/PermissionService');
@@ -56,7 +52,7 @@ function setAppConfig(config) {
 
 const agentLogHandler = {
   handle: (_event, data) => {
-    const logFn = logger[data.level] ?? logger.info;
+    const logFn = typeof logger[data.level] === 'function' ? logger[data.level] : logger.info;
     logFn(`[agentus:${data.scope}] ${data.message}`, {
       ...data.data,
       runId: data.runId,
@@ -462,13 +458,7 @@ const createResponse = async (req, res) => {
             responsesHandlers.on_chat_model_end.handle(event, data);
             const usage = data?.output?.usage_metadata;
             if (usage) {
-              const currentNode = metadata?.langgraph_node;
-              if (
-                typeof currentNode === 'string' &&
-                currentNode.startsWith(GraphNodeKeys.SUMMARIZE)
-              ) {
-                usage.usage_type = 'summarization';
-              }
+              markSummarizationUsage(usage, metadata);
               collectedUsage.push(usage);
             }
           },
@@ -653,13 +643,7 @@ const createResponse = async (req, res) => {
             aggregatorHandlers.on_chat_model_end.handle(event, data);
             const usage = data?.output?.usage_metadata;
             if (usage) {
-              const currentNode = metadata?.langgraph_node;
-              if (
-                typeof currentNode === 'string' &&
-                currentNode.startsWith(GraphNodeKeys.SUMMARIZE)
-              ) {
-                usage.usage_type = 'summarization';
-              }
+              markSummarizationUsage(usage, metadata);
               collectedUsage.push(usage);
             }
           },

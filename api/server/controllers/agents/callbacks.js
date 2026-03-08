@@ -68,10 +68,6 @@ class ModelEndHandler {
         });
       }
 
-      const currentNode = metadata?.langgraph_node;
-      const isSummarizationNode =
-        typeof currentNode === 'string' && currentNode.startsWith(GraphNodeKeys.SUMMARIZE);
-
       const usage = data?.output?.usage_metadata;
       if (!usage) {
         return this.finalize(errorMessage);
@@ -81,9 +77,7 @@ class ModelEndHandler {
         usage.model = modelName;
       }
 
-      if (isSummarizationNode) {
-        usage.usage_type = 'summarization';
-      }
+      markSummarizationUsage(usage, metadata);
 
       this.collectedUsage.push(usage);
     } catch (error) {
@@ -291,7 +285,7 @@ function getDefaultHandlers({
 
   handlers[GraphEvents.ON_AGENT_LOG] = {
     handle: (_event, data) => {
-      const logFn = logger[data.level] ?? logger.info;
+      const logFn = typeof logger[data.level] === 'function' ? logger[data.level] : logger.info;
       logFn(`[agentus:${data.scope}] ${data.message}`, {
         ...data.data,
         runId: data.runId,
@@ -723,8 +717,16 @@ function createResponsesToolEndCallback({ req, res, tracker, artifactPromises })
   };
 }
 
+function markSummarizationUsage(usage, metadata) {
+  const node = metadata?.langgraph_node;
+  if (typeof node === 'string' && node.startsWith(GraphNodeKeys.SUMMARIZE)) {
+    usage.usage_type = 'summarization';
+  }
+}
+
 module.exports = {
   getDefaultHandlers,
   createToolEndCallback,
   createResponsesToolEndCallback,
+  markSummarizationUsage,
 };

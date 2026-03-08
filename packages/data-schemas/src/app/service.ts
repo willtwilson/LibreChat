@@ -1,4 +1,9 @@
-import { EModelEndpoint, getConfigDefaults } from 'librechat-data-provider';
+import { logger } from '@librechat/data-schemas';
+import {
+  EModelEndpoint,
+  getConfigDefaults,
+  summarizationConfigSchema,
+} from 'librechat-data-provider';
 import type { TCustomConfig, FileSources, DeepPartial } from 'librechat-data-provider';
 import type { AppConfig, FunctionTool } from '~/types/app';
 import { loadDefaultInterface } from './interface';
@@ -11,14 +16,20 @@ import { loadEndpoints } from './endpoints';
 import { loadOCRConfig } from './ocr';
 
 function loadSummarizationConfig(config: DeepPartial<TCustomConfig>): AppConfig['summarization'] {
-  const summarization = config.summarization;
-  if (!summarization || typeof summarization !== 'object') {
+  const raw = config.summarization;
+  if (!raw || typeof raw !== 'object') {
+    return undefined;
+  }
+
+  const parsed = summarizationConfigSchema.safeParse(raw);
+  if (!parsed.success) {
+    logger.warn('[AppService] Invalid summarization config', parsed.error.flatten());
     return undefined;
   }
 
   return {
-    ...summarization,
-    enabled: summarization.enabled !== false,
+    ...parsed.data,
+    enabled: parsed.data.enabled !== false,
   };
 }
 

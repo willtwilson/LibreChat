@@ -333,8 +333,9 @@ export namespace Agents {
   }
 
   export interface SummarizeCompleteEvent {
+    id: string;
     agentId: string;
-    summary: SummaryContentPart;
+    summary?: SummaryContentPart;
     error?: string;
   }
 }

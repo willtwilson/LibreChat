@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, useCallback, useRef, useId } from 'react';
+import { memo, useMemo, useState, useCallback, useRef, useId, useEffect } from 'react';
 import { useAtomValue } from 'jotai';
 import { Clipboard, CheckMark, TooltipAnchor } from '@librechat/client';
 import { ScrollText, ChevronDown, ChevronUp } from 'lucide-react';
@@ -7,6 +7,25 @@ import { fontSizeAtom } from '~/store/fontSize';
 import { useMessageContext } from '~/Providers';
 import { useLocalize } from '~/hooks';
 import { cn } from '~/utils';
+
+function useCopyToClipboard(content?: string) {
+  const [isCopied, setIsCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => () => clearTimeout(timerRef.current), []);
+  const handleCopy = useCallback(
+    (e: MouseEvent<HTMLButtonElement>) => {
+      e.stopPropagation();
+      if (content) {
+        navigator.clipboard.writeText(content);
+        clearTimeout(timerRef.current);
+        setIsCopied(true);
+        timerRef.current = setTimeout(() => setIsCopied(false), 2000);
+      }
+    },
+    [content],
+  );
+  return { isCopied, handleCopy };
+}
 
 type ContentBlock = { type?: string; text?: string };
 
@@ -48,19 +67,7 @@ const SummaryButton = memo(
   }) => {
     const localize = useLocalize();
     const fontSize = useAtomValue(fontSizeAtom);
-    const [isCopied, setIsCopied] = useState(false);
-
-    const handleCopy = useCallback(
-      (e: MouseEvent<HTMLButtonElement>) => {
-        e.stopPropagation();
-        if (content) {
-          navigator.clipboard.writeText(content);
-          setIsCopied(true);
-          setTimeout(() => setIsCopied(false), 2000);
-        }
-      },
-      [content],
-    );
+    const { isCopied, handleCopy } = useCopyToClipboard(content);
 
     return (
       <div className="group/summary flex w-full items-center justify-between gap-2">
@@ -136,19 +143,7 @@ const FloatingSummaryBar = memo(
     contentId: string;
   }) => {
     const localize = useLocalize();
-    const [isCopied, setIsCopied] = useState(false);
-
-    const handleCopy = useCallback(
-      (e: MouseEvent<HTMLButtonElement>) => {
-        e.stopPropagation();
-        if (content) {
-          navigator.clipboard.writeText(content);
-          setIsCopied(true);
-          setTimeout(() => setIsCopied(false), 2000);
-        }
-      },
-      [content],
-    );
+    const { isCopied, handleCopy } = useCopyToClipboard(content);
 
     const collapseTooltip = isExpanded
       ? localize('com_ui_collapse_summary')

@@ -1,12 +1,7 @@
 const { nanoid } = require('nanoid');
 const { logger } = require('@librechat/data-schemas');
 const { EModelEndpoint, ResourceType, PermissionBits } = require('librechat-data-provider');
-const {
-  Callback,
-  GraphNodeKeys,
-  ToolEndHandler,
-  formatAgentMessages,
-} = require('@librechat/agents');
+const { Callback, ToolEndHandler, formatAgentMessages } = require('@librechat/agents');
 const {
   writeSSE,
   createRun,
@@ -27,7 +22,10 @@ const {
   isChatCompletionValidationFailure,
 } = require('@librechat/api');
 const { loadAgentTools, loadToolsForExecution } = require('~/server/services/ToolService');
-const { createToolEndCallback } = require('~/server/controllers/agents/callbacks');
+const {
+  createToolEndCallback,
+  markSummarizationUsage,
+} = require('~/server/controllers/agents/callbacks');
 const { findAccessibleResources } = require('~/server/services/PermissionService');
 const db = require('~/models');
 
@@ -427,13 +425,7 @@ const OpenAIChatCompletionController = async (req, res) => {
         handle: (_event, data, metadata) => {
           const usage = data?.output?.usage_metadata;
           if (usage) {
-            const currentNode = metadata?.langgraph_node;
-            if (
-              typeof currentNode === 'string' &&
-              currentNode.startsWith(GraphNodeKeys.SUMMARIZE)
-            ) {
-              usage.usage_type = 'summarization';
-            }
+            markSummarizationUsage(usage, metadata);
             collectedUsage.push(usage);
             const target = isStreaming ? tracker : aggregator;
             target.usage.promptTokens += usage.input_tokens ?? 0;

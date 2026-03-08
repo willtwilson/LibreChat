@@ -649,47 +649,54 @@ export default function useStepHandler({
         }
       } else if (stepEvent.event === StepEvents.ON_SUMMARIZE_COMPLETE) {
         const completeData = stepEvent.data;
+        const completeRunStep = stepMap.current.get(completeData.id);
+        let completeMessageId = completeRunStep?.runId ?? '';
+        if (completeMessageId === Constants.USE_PRELIM_RESPONSE_MESSAGE_ID) {
+          completeMessageId = submission?.initialResponse?.messageId ?? '';
+        }
+
+        const targetMessage = messageMap.current.get(completeMessageId);
+        if (!targetMessage || !Array.isArray(targetMessage.content)) {
+          return;
+        }
+
+        const currentMessages = getMessages() || [];
+        const targetIndex = currentMessages.findIndex((m) => m.messageId === completeMessageId);
+
         if (completeData.error) {
           announcePolite({ message: 'summarize_failed', isStatus: true });
-          // Remove stuck summarizing placeholder from the response
-          const currentMessages = getMessages() || [];
-          const lastMessage = currentMessages[currentMessages.length - 1];
-          if (lastMessage && Array.isArray(lastMessage.content)) {
-            const filtered = lastMessage.content.filter(
-              (part) =>
-                part?.type !== ContentTypes.SUMMARY || !(part as SummaryContentPart).summarizing,
-            );
-            if (filtered.length !== lastMessage.content.length) {
-              const cleaned = { ...lastMessage, content: filtered };
-              messageMap.current.set(lastMessage.messageId, cleaned);
-              setMessages([...currentMessages.slice(0, -1), cleaned]);
+          const filtered = targetMessage.content.filter(
+            (part) =>
+              part?.type !== ContentTypes.SUMMARY || !(part as SummaryContentPart).summarizing,
+          );
+          if (filtered.length !== targetMessage.content.length) {
+            const cleaned = { ...targetMessage, content: filtered };
+            messageMap.current.set(completeMessageId, cleaned);
+            if (targetIndex >= 0) {
+              const updated = [...currentMessages];
+              updated[targetIndex] = cleaned;
+              setMessages(updated);
             }
           }
         } else {
           announcePolite({ message: 'summarize_completed', isStatus: true });
-          // Replace accumulated delta text with the authoritative final summary.
-          // Multi-stage summarization streams deltas from each chunk, which
-          // concatenate in updateContent.  The complete event carries only the
-          // correct final text from the last stage.
-          const currentMessages = getMessages() || [];
-          const lastMessage = currentMessages[currentMessages.length - 1];
-          if (lastMessage && Array.isArray(lastMessage.content)) {
-            let didFinalize = false;
-            const updated = lastMessage.content.map((part) => {
-              if (part?.type === ContentTypes.SUMMARY && (part as SummaryContentPart).summarizing) {
-                if (!completeData.summary) {
-                  return part;
-                }
-                didFinalize = true;
-                return { ...completeData.summary, summarizing: false } as SummaryContentPart;
+          let didFinalize = false;
+          const updatedContent = targetMessage.content.map((part) => {
+            if (part?.type === ContentTypes.SUMMARY && (part as SummaryContentPart).summarizing) {
+              if (!completeData.summary) {
+                return part;
               }
-              return part;
-            });
-            if (didFinalize) {
-              const finalized = { ...lastMessage, content: updated };
-              messageMap.current.set(lastMessage.messageId, finalized);
-              setMessages([...currentMessages.slice(0, -1), finalized]);
+              didFinalize = true;
+              return { ...completeData.summary, summarizing: false } as SummaryContentPart;
             }
+            return part;
+          });
+          if (didFinalize && targetIndex >= 0) {
+            const finalized = { ...targetMessage, content: updatedContent };
+            messageMap.current.set(completeMessageId, finalized);
+            const updated = [...currentMessages];
+            updated[targetIndex] = finalized;
+            setMessages(updated);
           }
         }
       }
