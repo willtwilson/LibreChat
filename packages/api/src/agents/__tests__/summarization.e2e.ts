@@ -1,19 +1,20 @@
 /**
  * E2E Backend Integration Tests for Summarization
  *
- * Exercises the FULL LibreChat → agents pipeline:
+ * Exercises the FULL LibreChat -> agents pipeline:
  *   LibreChat's createRun (@librechat/api)
- *     → agents package Run.create (@librechat/agents)
- *     → graph execution → summarization node → events
+ *     -> agents package Run.create (@librechat/agents)
+ *     -> graph execution -> summarization node -> events
  *
  * Uses real AI providers, real formatAgentMessages, real token accounting.
  * Tracks summaries both mid-run and between runs.
  *
- * Run:
- *   npx jest --config api/test/e2e/jest.e2e.config.js
+ * Run from packages/api:
+ *   npx jest summarization.e2e --no-coverage --testTimeout=180000
+ *
+ * Requires real API keys in the environment (ANTHROPIC_API_KEY, OPENAI_API_KEY).
  */
-const { createRun, hydrateMissingIndexTokenCounts } = require('@librechat/api');
-const {
+import {
   Providers,
   Calculator,
   GraphEvents,
@@ -23,24 +24,46 @@ const {
   formatAgentMessages,
   ChatModelStreamHandler,
   createContentAggregator,
-} = require('@librechat/agents');
+} from '@librechat/agents';
+import type { UsageMetadata } from '@langchain/core/messages';
+import type {
+  SummarizeCompleteEvent,
+  MessageContentComplex,
+  SummaryContentBlock,
+  SummarizeStartEvent,
+  TokenCounter,
+  EventHandler,
+} from '@librechat/agents';
+import { hydrateMissingIndexTokenCounts } from '~/utils';
+import { createRun } from '~/agents';
 
 // ---------------------------------------------------------------------------
 // Shared test infrastructure
 // ---------------------------------------------------------------------------
 
-/** Extract text from a SummaryContentBlock (handles both legacy `text` and new `content` array). */
-function getSummaryText(summary) {
-  if (Array.isArray(summary.content)) {
-    return summary.content.map((b) => b.text ?? '').join('');
-  }
-  if (typeof summary.content === 'string') {
-    return summary.content;
-  }
-  return summary.text ?? '';
+interface Spies {
+  onMessageDelta: jest.Mock;
+  onRunStep: jest.Mock;
+  onSummarizeStart: jest.Mock;
+  onSummarizeDelta: jest.Mock;
+  onSummarizeComplete: jest.Mock;
 }
 
-function createSpies() {
+type PayloadMessage = {
+  role: string;
+  content: string | Array<Record<string, unknown>>;
+};
+
+function getSummaryText(summary: SummaryContentBlock): string {
+  if (Array.isArray(summary.content)) {
+    return summary.content
+      .map((b: MessageContentComplex) => ('text' in b ? (b as { text: string }).text : ''))
+      .join('');
+  }
+  return '';
+}
+
+function createSpies(): Spies {
   return {
     onMessageDelta: jest.fn(),
     onRunStep: jest.fn(),
@@ -50,33 +73,33 @@ function createSpies() {
   };
 }
 
-/**
- * Builds event handlers matching LibreChat's getDefaultHandlers pattern,
- * but capturing events instead of writing to an SSE stream.
- */
-function buildHandlers(collectedUsage, aggregateContent, spies) {
+function buildHandlers(
+  collectedUsage: UsageMetadata[],
+  aggregateContent: (params: { event: string; data: unknown }) => void,
+  spies: Spies,
+): Record<string, EventHandler> {
   return {
     [GraphEvents.TOOL_END]: new ToolEndHandler(),
     [GraphEvents.CHAT_MODEL_END]: new ModelEndHandler(collectedUsage),
     [GraphEvents.CHAT_MODEL_STREAM]: new ChatModelStreamHandler(),
     [GraphEvents.ON_RUN_STEP]: {
-      handle: (event, data) => {
+      handle: (event: string, data: unknown) => {
         spies.onRunStep(event, data);
         aggregateContent({ event, data });
       },
     },
     [GraphEvents.ON_RUN_STEP_COMPLETED]: {
-      handle: (event, data) => {
+      handle: (event: string, data: unknown) => {
         aggregateContent({ event, data });
       },
     },
     [GraphEvents.ON_RUN_STEP_DELTA]: {
-      handle: (event, data) => {
+      handle: (event: string, data: unknown) => {
         aggregateContent({ event, data });
       },
     },
     [GraphEvents.ON_MESSAGE_DELTA]: {
-      handle: (event, data, metadata) => {
+      handle: (event: string, data: unknown, metadata?: Record<string, unknown>) => {
         spies.onMessageDelta(event, data, metadata);
         aggregateContent({ event, data });
       },
@@ -84,27 +107,26 @@ function buildHandlers(collectedUsage, aggregateContent, spies) {
     [GraphEvents.TOOL_START]: {
       handle: () => {},
     },
-    // Summarization handlers (same as callbacks.js registers when enabled)
     [GraphEvents.ON_SUMMARIZE_START]: {
-      handle: (_event, data) => {
+      handle: (_event: string, data: unknown) => {
         spies.onSummarizeStart(data);
       },
     },
     [GraphEvents.ON_SUMMARIZE_DELTA]: {
-      handle: (_event, data) => {
+      handle: (_event: string, data: unknown) => {
         spies.onSummarizeDelta(data);
         aggregateContent({ event: GraphEvents.ON_SUMMARIZE_DELTA, data });
       },
     },
     [GraphEvents.ON_SUMMARIZE_COMPLETE]: {
-      handle: (_event, data) => {
+      handle: (_event: string, data: unknown) => {
         spies.onSummarizeComplete(data);
       },
     },
   };
 }
 
-function getDefaultModel(provider) {
+function getDefaultModel(provider: string): string {
   switch (provider) {
     case Providers.ANTHROPIC:
       return 'claude-3-5-haiku-latest';
@@ -119,15 +141,18 @@ function getDefaultModel(provider) {
 // Turn runner — mirrors AgentClient.chatCompletion() message flow
 // ---------------------------------------------------------------------------
 
-/**
- * Runs a single conversational turn through the full LibreChat pipeline:
- *   1. Build payload (TPayload) from conversation history
- *   2. formatAgentMessages (convert to LangChain messages)
- *   3. hydrateMissingIndexTokenCounts
- *   4. createRun via @librechat/api
- *   5. processStream
- *   6. Collect run messages for next turn
- */
+interface RunFullTurnParams {
+  payload: PayloadMessage[];
+  agentProvider: string;
+  summarizationProvider: string;
+  summarizationModel?: string;
+  maxContextTokens: number;
+  instructions: string;
+  spies: Spies;
+  tokenCounter: TokenCounter;
+  model?: string;
+}
+
 async function runFullTurn({
   payload,
   agentProvider,
@@ -138,28 +163,26 @@ async function runFullTurn({
   spies,
   tokenCounter,
   model,
-}) {
-  const collectedUsage = [];
+}: RunFullTurnParams) {
+  const collectedUsage: UsageMetadata[] = [];
   const { contentParts, aggregateContent } = createContentAggregator();
 
-  // Step 1-2: formatAgentMessages (LibreChat's real message formatting)
-  const formatted = formatAgentMessages(payload, {});
-  let { messages: initialMessages, indexTokenCountMap, summary: initialSummary } = formatted;
+  const formatted = formatAgentMessages(payload as never, {});
+  const { messages: initialMessages, summary: initialSummary } = formatted;
+  let { indexTokenCountMap } = formatted;
 
-  // Step 3: hydrate token counts (mirrors client.js)
   indexTokenCountMap = hydrateMissingIndexTokenCounts({
     messages: initialMessages,
-    indexTokenCountMap,
+    indexTokenCountMap: indexTokenCountMap as Record<string, number | undefined>,
     tokenCounter,
   });
 
-  // Step 4: create Run via @librechat/api's createRun
   const abortController = new AbortController();
   const agent = {
     id: `test-agent-${agentProvider}`,
     name: 'Test Agent',
     provider: agentProvider,
-    instructions: instructions,
+    instructions,
     tools: [new Calculator()],
     maxContextTokens,
     model_parameters: {
@@ -178,28 +201,24 @@ async function runFullTurn({
   };
 
   const run = await createRun({
-    agents: [agent],
+    agents: [agent] as never,
     messages: initialMessages,
     indexTokenCountMap,
     initialSummary,
     runId: `e2e-${Date.now()}`,
     signal: abortController.signal,
-    customHandlers: buildHandlers(collectedUsage, aggregateContent, spies),
+    customHandlers: buildHandlers(collectedUsage, aggregateContent, spies) as never,
     summarizationConfig,
     tokenCounter,
   });
 
-  // Step 5: process the stream
-  // Higher recursionLimit to accommodate multi-cycle summarization + tool call rounds
   const streamConfig = {
     configurable: { thread_id: `e2e-${Date.now()}` },
     recursionLimit: 100,
-    streamMode: 'values',
-    version: 'v2',
+    streamMode: 'values' as const,
+    version: 'v2' as const,
   };
   const result = await run.processStream({ messages: initialMessages }, streamConfig);
-
-  // Step 6: collect run messages
   const runMessages = run.getRunMessages() || [];
 
   return {
@@ -211,7 +230,7 @@ async function runFullTurn({
   };
 }
 
-function getLastContent(runMessages) {
+function getLastContent(runMessages: Array<{ content: string | unknown }>): string {
   const last = runMessages[runMessages.length - 1];
   if (!last) {
     return '';
@@ -226,15 +245,17 @@ function getLastContent(runMessages) {
 const hasAnthropic =
   process.env.ANTHROPIC_API_KEY != null && process.env.ANTHROPIC_API_KEY !== 'test';
 (hasAnthropic ? describe : describe.skip)('Anthropic Summarization E2E (LibreChat)', () => {
+  jest.setTimeout(180_000);
+
   const instructions =
     'You are an expert math tutor. You MUST use the calculator tool for ALL computations. Keep answers to 1-2 sentences.';
 
   test('multi-turn triggers summarization, summary persists across runs', async () => {
     const spies = createSpies();
     const tokenCounter = await createTokenCounter();
-    const conversationPayload = [];
+    const conversationPayload: PayloadMessage[] = [];
 
-    const addTurn = async (userMsg, maxTokens) => {
+    const addTurn = async (userMsg: string, maxTokens: number) => {
       conversationPayload.push({ role: 'user', content: userMsg });
       const result = await runFullTurn({
         payload: conversationPayload,
@@ -250,80 +271,48 @@ const hasAnthropic =
       return result;
     };
 
-    // Build up conversation with tool calls.
-    // The payload stores only final user/assistant text (not internal tool calls/results),
-    // so token counts are modest. However, during each run the model may make 1-3 tool
-    // calls which grow the graph state. maxContextTokens must be:
-    //   - Large enough in early turns to avoid premature pruning
-    //   - Small enough in later turns to trigger pruning/summarization
-    //   - Not so tight that the model can't complete tool call rounds after summarization
     await addTurn('What is 12345 * 6789? Use the calculator.', 2000);
-    console.log(`  T1: ${conversationPayload.length} entries`);
-
     await addTurn(
       'Now divide that result by 137. Then multiply by 42. Calculator for each step.',
       2000,
     );
-    console.log(`  T2: ${conversationPayload.length} entries`);
-
     await addTurn(
       'Compute step by step: 1) 9876543 - 1234567  2) sqrt of result  3) Add 100. Calculator for each.',
       1500,
     );
-    console.log(`  T3: ${conversationPayload.length} entries`);
-
-    // Moderate squeeze: tool calls within this run may grow the state beyond budget,
-    // triggering summarization. Must leave enough room after summarization for
-    // the model to complete its response (including tool calls).
     await addTurn('What is 2^20? Calculator. Then list everything we calculated so far.', 800);
-    console.log(`  T4: ${conversationPayload.length} entries`);
 
     if (spies.onSummarizeStart.mock.calls.length === 0) {
       await addTurn('Calculate 355 / 113. Calculator.', 600);
-      console.log(`  T5: ${conversationPayload.length} entries`);
     }
-
     if (spies.onSummarizeStart.mock.calls.length === 0) {
       await addTurn('What is 999 * 999? Calculator.', 400);
-      console.log(`  T6: ${conversationPayload.length} entries`);
     }
 
-    // --- Assert summarization fired ---
     const startCalls = spies.onSummarizeStart.mock.calls.length;
     const completeCalls = spies.onSummarizeComplete.mock.calls.length;
-    console.log(`  Summarization events: start=${startCalls}, complete=${completeCalls}`);
 
     expect(startCalls).toBeGreaterThanOrEqual(1);
     expect(completeCalls).toBeGreaterThanOrEqual(1);
 
-    const startPayload = spies.onSummarizeStart.mock.calls[0][0];
+    const startPayload = spies.onSummarizeStart.mock.calls[0][0] as SummarizeStartEvent;
     expect(startPayload.agentId).toBeDefined();
     expect(startPayload.provider).toBeDefined();
     expect(startPayload.messagesToRefineCount).toBeGreaterThan(0);
     expect(startPayload.summaryVersion).toBeGreaterThanOrEqual(1);
 
-    const completePayload = spies.onSummarizeComplete.mock.calls[0][0];
+    const completePayload = spies.onSummarizeComplete.mock.calls[0][0] as SummarizeCompleteEvent;
     expect(completePayload.summary).toBeDefined();
-    expect(getSummaryText(completePayload.summary).length).toBeGreaterThan(10);
-    expect(completePayload.summary.tokenCount).toBeGreaterThan(0);
-    expect(completePayload.summary.tokenCount).toBeLessThan(2000);
-    expect(completePayload.summary.provider).toBeDefined();
-    expect(completePayload.summary.createdAt).toBeDefined();
+    expect(getSummaryText(completePayload.summary!).length).toBeGreaterThan(10);
+    expect(completePayload.summary!.tokenCount).toBeGreaterThan(0);
+    expect(completePayload.summary!.tokenCount!).toBeLessThan(2000);
+    expect(completePayload.summary!.provider).toBeDefined();
+    expect(completePayload.summary!.createdAt).toBeDefined();
+    expect(completePayload.summary!.summaryVersion).toBeGreaterThanOrEqual(1);
 
-    // summaryVersion populated
-    expect(completePayload.summary.summaryVersion).toBeGreaterThanOrEqual(1);
-
-    console.log(
-      `  Summary: version=${completePayload.summary.summaryVersion}, ` +
-        `tokens=${completePayload.summary.tokenCount}`,
-    );
-    console.log(
-      `  Summary text (first 200): "${getSummaryText(completePayload.summary).substring(0, 200)}"`,
-    );
-
-    // --- Cross-run: persist summary → formatAgentMessages → new run ---
-    const summaryBlock = completePayload.summary;
-    const crossRunPayload = [
+    // --- Cross-run: persist summary -> formatAgentMessages -> new run ---
+    const summaryBlock = completePayload.summary!;
+    const crossRunPayload: PayloadMessage[] = [
       {
         role: 'assistant',
         content: [
@@ -357,18 +346,13 @@ const hasAnthropic =
     });
 
     expect(crossRun.runMessages.length).toBeGreaterThan(0);
-    console.log(
-      `  Cross-run response: "${getLastContent(crossRun.runMessages).substring(0, 200)}"`,
-    );
-    console.log(`  Cross-run summarization fires: ${spies.onSummarizeStart.mock.calls.length}`);
   });
 
   test('tight context (maxContextTokens=200) does not infinite-loop', async () => {
     const spies = createSpies();
     const tokenCounter = await createTokenCounter();
-    const conversationPayload = [];
+    const conversationPayload: PayloadMessage[] = [];
 
-    // Build conversation at normal size
     conversationPayload.push({ role: 'user', content: 'What is 42 * 58? Calculator.' });
     const t1 = await runFullTurn({
       payload: conversationPayload,
@@ -395,10 +379,9 @@ const hasAnthropic =
     });
     conversationPayload.push({ role: 'assistant', content: getLastContent(t2.runMessages) });
 
-    // Tight context — must not infinite-loop
     conversationPayload.push({ role: 'user', content: 'What is 100 / 4? Calculator.' });
 
-    let error;
+    let error: Error | undefined;
     try {
       await runFullTurn({
         payload: conversationPayload,
@@ -411,29 +394,17 @@ const hasAnthropic =
         tokenCounter,
       });
     } catch (err) {
-      error = err;
+      error = err as Error;
     }
 
-    // With real tools + tight context, the model may produce repeated tool call rounds
-    // that keep growing the message count, allowing re-summarization on each cycle.
-    // This is bounded by the graph's recursionLimit (the expected safety valve).
-    // The key guarantee: the system terminates — no true infinite loop.
     if (error) {
-      // Both "Recursion limit" (bounded tool-call cycles) and "empty_messages"
-      // (context too small for any message) are valid termination modes.
       const isCleanTermination =
         error.message.includes('Recursion limit') || error.message.includes('empty_messages');
+      // eslint-disable-next-line jest/no-conditional-expect -- error may or may not occur depending on model behavior
       expect(isCleanTermination).toBe(true);
-      console.log(`  Tight context: terminated with: ${error.message.substring(0, 100)}`);
-    } else {
-      console.log(`  Tight context: completed cleanly`);
     }
 
-    // Summarization should have fired at least once before termination
     expect(spies.onSummarizeStart.mock.calls.length).toBeGreaterThanOrEqual(1);
-    console.log(
-      `  Tight context: start=${spies.onSummarizeStart.mock.calls.length}, complete=${spies.onSummarizeComplete.mock.calls.length}`,
-    );
   });
 });
 
@@ -443,15 +414,17 @@ const hasAnthropic =
 
 const hasOpenAI = process.env.OPENAI_API_KEY != null && process.env.OPENAI_API_KEY !== 'test';
 (hasOpenAI ? describe : describe.skip)('OpenAI Summarization E2E (LibreChat)', () => {
+  jest.setTimeout(180_000);
+
   const instructions =
     'You are a helpful math tutor. Use the calculator tool for ALL computations. Keep responses concise.';
 
   test('multi-turn with cross-run summary continuity', async () => {
     const spies = createSpies();
     const tokenCounter = await createTokenCounter();
-    const conversationPayload = [];
+    const conversationPayload: PayloadMessage[] = [];
 
-    const addTurn = async (userMsg, maxTokens) => {
+    const addTurn = async (userMsg: string, maxTokens: number) => {
       conversationPayload.push({ role: 'user', content: userMsg });
       const result = await runFullTurn({
         payload: conversationPayload,
@@ -468,53 +441,34 @@ const hasOpenAI = process.env.OPENAI_API_KEY != null && process.env.OPENAI_API_K
     };
 
     await addTurn('What is 1234 * 5678? Calculator.', 2000);
-    console.log(`  T1: ${conversationPayload.length} entries`);
-
     await addTurn('Compute sqrt(7006652) with calculator.', 1500);
-    console.log(`  T2: ${conversationPayload.length} entries`);
-
     await addTurn('Calculate 99*101 and 2^15. Calculator for each.', 1200);
-    console.log(`  T3: ${conversationPayload.length} entries`);
-
     await addTurn('What is 314159 * 271828? Calculator. Remind me of all prior results.', 800);
-    console.log(`  T4: ${conversationPayload.length} entries`);
 
     if (spies.onSummarizeStart.mock.calls.length === 0) {
       await addTurn('Calculate 999999 / 7. Calculator.', 600);
-      console.log(`  T5: ${conversationPayload.length} entries`);
     }
-
     if (spies.onSummarizeStart.mock.calls.length === 0) {
       await addTurn('What is 42 + 58? Calculator.', 400);
-      console.log(`  T6: ${conversationPayload.length} entries`);
     }
-
     if (spies.onSummarizeStart.mock.calls.length === 0) {
       await addTurn('Calculate 7 * 13. Calculator.', 300);
-      console.log(`  T7: ${conversationPayload.length} entries`);
     }
-
     if (spies.onSummarizeStart.mock.calls.length === 0) {
       await addTurn('What is 100 - 37? Calculator.', 200);
-      console.log(`  T8: ${conversationPayload.length} entries`);
     }
 
     expect(spies.onSummarizeStart.mock.calls.length).toBeGreaterThanOrEqual(1);
     expect(spies.onSummarizeComplete.mock.calls.length).toBeGreaterThanOrEqual(1);
 
-    const complete = spies.onSummarizeComplete.mock.calls[0][0];
-    expect(getSummaryText(complete.summary).length).toBeGreaterThan(10);
-    expect(complete.summary.tokenCount).toBeGreaterThan(0);
-    expect(complete.summary.summaryVersion).toBeGreaterThanOrEqual(1);
-    expect(complete.summary.provider).toBe(Providers.OPENAI);
+    const complete = spies.onSummarizeComplete.mock.calls[0][0] as SummarizeCompleteEvent;
+    expect(getSummaryText(complete.summary!).length).toBeGreaterThan(10);
+    expect(complete.summary!.tokenCount).toBeGreaterThan(0);
+    expect(complete.summary!.summaryVersion).toBeGreaterThanOrEqual(1);
+    expect(complete.summary!.provider).toBe(Providers.OPENAI);
 
-    console.log(
-      `  OpenAI summary: version=${complete.summary.summaryVersion}, tokens=${complete.summary.tokenCount}`,
-    );
-
-    // Cross-run: pass summary to next run via formatAgentMessages
-    const summaryBlock = complete.summary;
-    const crossRunPayload = [
+    const summaryBlock = complete.summary!;
+    const crossRunPayload: PayloadMessage[] = [
       {
         role: 'assistant',
         content: [
@@ -545,7 +499,6 @@ const hasOpenAI = process.env.OPENAI_API_KEY != null && process.env.OPENAI_API_K
     });
 
     expect(crossRun.runMessages.length).toBeGreaterThan(0);
-    console.log(`  Cross-run: ${crossRun.runMessages.length} messages`);
   });
 });
 
@@ -557,15 +510,17 @@ const hasBothProviders = hasAnthropic && hasOpenAI;
 (hasBothProviders ? describe : describe.skip)(
   'Cross-provider Summarization E2E (LibreChat)',
   () => {
+    jest.setTimeout(180_000);
+
     const instructions =
       'You are a math assistant. Use the calculator for every computation. Be brief.';
 
     test('Anthropic agent with OpenAI summarizer', async () => {
       const spies = createSpies();
       const tokenCounter = await createTokenCounter();
-      const conversationPayload = [];
+      const conversationPayload: PayloadMessage[] = [];
 
-      const addTurn = async (userMsg, maxTokens) => {
+      const addTurn = async (userMsg: string, maxTokens: number) => {
         conversationPayload.push({ role: 'user', content: userMsg });
         const result = await runFullTurn({
           payload: conversationPayload,
@@ -585,32 +540,20 @@ const hasBothProviders = hasAnthropic && hasOpenAI;
       };
 
       await addTurn('Compute 54321 * 12345 using calculator.', 800);
-      console.log(`  T1: ${conversationPayload.length} entries`);
-
       await addTurn('Now calculate 670592745 / 99991. Calculator.', 600);
-      console.log(`  T2: ${conversationPayload.length} entries`);
-
       await addTurn('What is sqrt(670592745)? Calculator.', 400);
-      console.log(`  T3: ${conversationPayload.length} entries`);
-
       await addTurn('Compute 2^32 with calculator. List all prior results.', 250);
-      console.log(`  T4: ${conversationPayload.length} entries`);
 
       if (spies.onSummarizeStart.mock.calls.length === 0) {
         await addTurn('13 * 17 * 19 = ? Calculator.', 150);
-        console.log(`  T5: ${conversationPayload.length} entries`);
       }
 
       expect(spies.onSummarizeComplete.mock.calls.length).toBeGreaterThanOrEqual(1);
-      const complete = spies.onSummarizeComplete.mock.calls[0][0];
+      const complete = spies.onSummarizeComplete.mock.calls[0][0] as SummarizeCompleteEvent;
 
-      // Summary should come from OpenAI even though agent is Anthropic
-      expect(complete.summary.provider).toBe(Providers.OPENAI);
-      expect(complete.summary.model).toBe('gpt-4.1-mini');
-      expect(getSummaryText(complete.summary).length).toBeGreaterThan(10);
-      console.log(
-        `  Cross-provider summary (${getSummaryText(complete.summary).length} chars): provider=${complete.summary.provider}`,
-      );
+      expect(complete.summary!.provider).toBe(Providers.OPENAI);
+      expect(complete.summary!.model).toBe('gpt-4.1-mini');
+      expect(getSummaryText(complete.summary!).length).toBeGreaterThan(10);
     });
   },
 );
