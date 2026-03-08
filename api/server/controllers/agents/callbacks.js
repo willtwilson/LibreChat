@@ -260,7 +260,7 @@ function getDefaultHandlers({
     handlers[GraphEvents.ON_TOOL_EXECUTE] = createToolExecuteHandler(toolExecuteOptions);
   }
 
-  if (summarizationOptions?.enabled === true) {
+  if (summarizationOptions?.enabled !== false) {
     handlers[GraphEvents.ON_SUMMARIZE_START] = {
       handle: async (_event, data) => {
         await emitEvent(res, streamId, {

@@ -450,7 +450,7 @@ const OpenAIChatCompletionController = async (req, res) => {
       on_custom_event: createHandler(),
       // Event-driven tool execution handler
       on_tool_execute: createToolExecuteHandler(toolExecuteOptions),
-      ...(summarizationConfig?.enabled === true
+      ...(summarizationConfig?.enabled !== false
         ? {
             on_summarize_start: {
               handle: async (_event, data) => {

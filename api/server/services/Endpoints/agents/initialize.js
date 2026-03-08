@@ -140,9 +140,7 @@ const initializeClient = async ({ req, res, signal, endpointOption }) => {
   };
 
   const summarizationOptions =
-    appConfig?.summarization && appConfig.summarization.enabled !== false
-      ? { enabled: true }
-      : null;
+    appConfig?.summarization?.enabled === false ? null : { enabled: true };
 
   const eventHandlers = getDefaultHandlers({
     res,

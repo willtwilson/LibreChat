@@ -481,7 +481,7 @@ const createResponse = async (req, res) => {
         on_custom_event: { handle: () => {} },
         on_tool_execute: createToolExecuteHandler(toolExecuteOptions),
         on_agent_log: agentLogHandler,
-        ...(summarizationConfig?.enabled === true
+        ...(summarizationConfig?.enabled !== false
           ? {
               on_summarize_start: {
                 handle: async (_event, data) => {
@@ -672,7 +672,7 @@ const createResponse = async (req, res) => {
         on_custom_event: { handle: () => {} },
         on_tool_execute: createToolExecuteHandler(toolExecuteOptions),
         on_agent_log: agentLogHandler,
-        ...(summarizationConfig?.enabled === true
+        ...(summarizationConfig?.enabled !== false
           ? {
               on_summarize_start: { handle: () => {} },
               on_summarize_delta: { handle: () => {} },
