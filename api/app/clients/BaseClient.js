@@ -1081,7 +1081,6 @@ class BaseClient {
     await db.updateMessage(this.options?.req?.user?.id, message);
   }
 
-  /** Finds the last summary content block in a message's content array (last-summary-wins) */
   /** Extracts text from a summary block (handles both legacy `text` field and new `content` array format). */
   static getSummaryText(summaryBlock) {
     if (Array.isArray(summaryBlock.content)) {
@@ -1093,6 +1092,7 @@ class BaseClient {
     return summaryBlock.text ?? '';
   }
 
+  /** Finds the last summary content block in a message's content array (last-summary-wins). */
   static findSummaryContentBlock(message) {
     if (!Array.isArray(message?.content)) {
       return null;
