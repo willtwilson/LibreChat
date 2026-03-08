@@ -274,7 +274,7 @@ const Summary = memo(({ content, model, provider, tokenCount, summarizing }: Sum
   return (
     <div
       ref={containerRef}
-      className="group/reasoning"
+      className="group/summary"
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onFocus={handleFocus}

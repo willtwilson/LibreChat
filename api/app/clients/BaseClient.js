@@ -1082,6 +1082,7 @@ class BaseClient {
   }
 
   /** Finds the last summary content block in a message's content array (last-summary-wins) */
+  /** Extracts text from a summary block (handles both legacy `text` field and new `content` array format). */
   static getSummaryText(summaryBlock) {
     if (Array.isArray(summaryBlock.content)) {
       return summaryBlock.content.map((b) => b.text ?? '').join('');
@@ -1098,6 +1099,7 @@ class BaseClient {
     }
     let lastSummary = null;
     for (const part of message.content) {
+      // Accepts both new format (content: []) and legacy DB format (text: string)
       if (part?.type === ContentTypes.SUMMARY && (part.content || part.text)) {
         lastSummary = part;
       }
@@ -1159,27 +1161,32 @@ class BaseClient {
         break;
       }
 
+      let resolved = message;
       let hasSummary = false;
       if (summary) {
         const summaryBlock = BaseClient.findSummaryContentBlock(message);
         if (summaryBlock) {
           const summaryText = BaseClient.getSummaryText(summaryBlock);
-          message.role = 'system';
-          message.content = [{ type: ContentTypes.TEXT, text: summaryText }];
-          message.tokenCount = summaryBlock.tokenCount;
+          resolved = {
+            ...message,
+            role: 'system',
+            content: [{ type: ContentTypes.TEXT, text: summaryText }],
+            tokenCount: summaryBlock.tokenCount,
+          };
           hasSummary = true;
         } else if (message.summary) {
-          message.role = 'system';
-          message.content = [{ type: ContentTypes.TEXT, text: message.summary }];
-          if (message.summaryTokenCount) {
-            message.tokenCount = message.summaryTokenCount;
-          }
+          resolved = {
+            ...message,
+            role: 'system',
+            content: [{ type: ContentTypes.TEXT, text: message.summary }],
+            tokenCount: message.summaryTokenCount ?? message.tokenCount,
+          };
           hasSummary = true;
         }
       }
 
-      const shouldMap = mapMethod != null && (mapCondition != null ? mapCondition(message) : true);
-      const processedMessage = shouldMap ? mapMethod(message) : message;
+      const shouldMap = mapMethod != null && (mapCondition != null ? mapCondition(resolved) : true);
+      const processedMessage = shouldMap ? mapMethod(resolved) : resolved;
       orderedMessages.push(processedMessage);
 
       if (hasSummary) {

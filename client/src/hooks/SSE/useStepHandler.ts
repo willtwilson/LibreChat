@@ -364,8 +364,7 @@ export default function useStepHandler({
         if (runStep.summary != null) {
           const summaryPart: SummaryContentPart = {
             type: ContentTypes.SUMMARY,
-            text: '',
-            tokenCount: 0,
+            content: [],
             summarizing: true,
             model: runStep.summary.model,
             provider: runStep.summary.provider,

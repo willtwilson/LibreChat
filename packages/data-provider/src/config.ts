@@ -993,8 +993,6 @@ export const summarizationConfigSchema = z.object({
   stream: z.boolean().optional(),
   reserveTokensRatio: z.number().min(0).max(1).optional(),
   maxSummaryTokens: z.number().positive().optional(),
-  /** Absolute minimum tokens reserved for summarization output. */
-  minReserveTokens: z.number().min(0).optional(),
   /** Position-based context pruning configuration. */
   contextPruning: contextPruningSchema.optional(),
   /** Overflow recovery configuration. */

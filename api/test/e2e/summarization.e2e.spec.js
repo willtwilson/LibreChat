@@ -29,6 +29,17 @@ const {
 // Shared test infrastructure
 // ---------------------------------------------------------------------------
 
+/** Extract text from a SummaryContentBlock (handles both legacy `text` and new `content` array). */
+function getSummaryText(summary) {
+  if (Array.isArray(summary.content)) {
+    return summary.content.map((b) => b.text ?? '').join('');
+  }
+  if (typeof summary.content === 'string') {
+    return summary.content;
+  }
+  return summary.text ?? '';
+}
+
 function createSpies() {
   return {
     onMessageDelta: jest.fn(),
@@ -293,23 +304,22 @@ const hasAnthropic =
 
     const completePayload = spies.onSummarizeComplete.mock.calls[0][0];
     expect(completePayload.summary).toBeDefined();
-    expect(completePayload.summary.text.length).toBeGreaterThan(10);
+    expect(getSummaryText(completePayload.summary).length).toBeGreaterThan(10);
     expect(completePayload.summary.tokenCount).toBeGreaterThan(0);
     expect(completePayload.summary.tokenCount).toBeLessThan(2000);
     expect(completePayload.summary.provider).toBeDefined();
     expect(completePayload.summary.createdAt).toBeDefined();
 
-    // Gap #8: summaryVersion and rangeHash populated
+    // summaryVersion populated
     expect(completePayload.summary.summaryVersion).toBeGreaterThanOrEqual(1);
-    expect(completePayload.summary.rangeHash).toBeDefined();
-    expect(typeof completePayload.summary.rangeHash).toBe('string');
-    expect(completePayload.summary.rangeHash.length).toBe(16);
 
     console.log(
       `  Summary: version=${completePayload.summary.summaryVersion}, ` +
-        `hash=${completePayload.summary.rangeHash}, tokens=${completePayload.summary.tokenCount}`,
+        `tokens=${completePayload.summary.tokenCount}`,
     );
-    console.log(`  Summary text (first 200): "${completePayload.summary.text.substring(0, 200)}"`);
+    console.log(
+      `  Summary text (first 200): "${getSummaryText(completePayload.summary).substring(0, 200)}"`,
+    );
 
     // --- Cross-run: persist summary → formatAgentMessages → new run ---
     const summaryBlock = completePayload.summary;
@@ -317,7 +327,11 @@ const hasAnthropic =
       {
         role: 'assistant',
         content: [
-          { type: 'summary', text: summaryBlock.text, tokenCount: summaryBlock.tokenCount },
+          {
+            type: 'summary',
+            text: getSummaryText(summaryBlock),
+            tokenCount: summaryBlock.tokenCount,
+          },
         ],
       },
       conversationPayload[conversationPayload.length - 2],
@@ -489,9 +503,8 @@ const hasOpenAI = process.env.OPENAI_API_KEY != null && process.env.OPENAI_API_K
     expect(spies.onSummarizeComplete.mock.calls.length).toBeGreaterThanOrEqual(1);
 
     const complete = spies.onSummarizeComplete.mock.calls[0][0];
-    expect(complete.summary.text.length).toBeGreaterThan(10);
+    expect(getSummaryText(complete.summary).length).toBeGreaterThan(10);
     expect(complete.summary.tokenCount).toBeGreaterThan(0);
-    expect(complete.summary.rangeHash).toBeDefined();
     expect(complete.summary.summaryVersion).toBeGreaterThanOrEqual(1);
     expect(complete.summary.provider).toBe(Providers.OPENAI);
 
@@ -505,7 +518,11 @@ const hasOpenAI = process.env.OPENAI_API_KEY != null && process.env.OPENAI_API_K
       {
         role: 'assistant',
         content: [
-          { type: 'summary', text: summaryBlock.text, tokenCount: summaryBlock.tokenCount },
+          {
+            type: 'summary',
+            text: getSummaryText(summaryBlock),
+            tokenCount: summaryBlock.tokenCount,
+          },
         ],
       },
       conversationPayload[conversationPayload.length - 2],
@@ -590,11 +607,9 @@ const hasBothProviders = hasAnthropic && hasOpenAI;
       // Summary should come from OpenAI even though agent is Anthropic
       expect(complete.summary.provider).toBe(Providers.OPENAI);
       expect(complete.summary.model).toBe('gpt-4.1-mini');
-      expect(complete.summary.text.length).toBeGreaterThan(10);
-      expect(complete.summary.rangeHash).toBeDefined();
-
+      expect(getSummaryText(complete.summary).length).toBeGreaterThan(10);
       console.log(
-        `  Cross-provider summary (${complete.summary.text.length} chars): provider=${complete.summary.provider}`,
+        `  Cross-provider summary (${getSummaryText(complete.summary).length} chars): provider=${complete.summary.provider}`,
       );
     });
   },

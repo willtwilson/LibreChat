@@ -527,7 +527,6 @@ export type SummaryContentPart = {
   tokenCount?: number;
   summarizing?: boolean;
   summaryVersion?: number;
-  rangeHash?: string;
   model?: string;
   provider?: string;
   createdAt?: string;

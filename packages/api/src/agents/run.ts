@@ -344,12 +344,16 @@ export async function createRun({
     // Apply configurable reserve ratio when available, falling back to the
     // pre-computed maxContextTokens from initializeAgent.
     const reserveRatio = resolvedSummarizationConfig?.reserveTokensRatio;
-    const effectiveMaxContextTokens =
+    const ratioComputed =
       reserveRatio != null &&
       reserveRatio > 0 &&
       reserveRatio < 1 &&
       agent.baseContextTokens != null
         ? Math.max(1024, Math.round(agent.baseContextTokens * (1 - reserveRatio)))
+        : null;
+    const effectiveMaxContextTokens =
+      ratioComputed != null
+        ? Math.min(agent.maxContextTokens ?? ratioComputed, ratioComputed)
         : agent.maxContextTokens;
 
     const reasoningKey = getReasoningKey(provider, llmConfig, agent.endpoint);
@@ -394,7 +398,6 @@ export async function createRun({
           } satisfies AgentSummarizationConfig)
         : undefined,
       initialSummary,
-      minReserveTokens: resolvedSummarizationConfig?.minReserveTokens,
       contextPruningConfig: resolvedSummarizationConfig?.contextPruning as
         | ContextPruningConfig
         | undefined,
